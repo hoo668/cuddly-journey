@@ -45,3 +45,7 @@ GitHub Actions 适合定时/手动运行任务和生成 artifact，不能常驻�
 在 GitHub Actions 的 **IP lookup** 工作流可手动查询任意 IPv4/IPv6，也会每天运行一次。留空 IP 时查的是 GitHub runner 的公网出口，不是触发工作流的电脑或本地代理。结果会显示在 Actions 的运行摘要中，并作为 `ip-lookup-result` artifact 保留 14 天。
 
 其他候选站点暂不参与投票：百度页面不是稳定的逐 IP 查询响应，Whoer 在本次探测中返回 403；其余站点只有在确认可稳定、合规地直接获取结果后再接入，避免动态页面或反爬结果产生假票。
+
+### MongoDB 登录 IP enrichment
+
+MongoDB 集成及定时 GitHub Actions 配置见 [ip/MONGODB.md](ip/MONGODB.md)。工作流会在 `login_ip` collection 幂等创建虚拟登录样例，再扫描缺失/过期的 `ip_info` 并回写归一化解析结果。MongoDB URI、用户名和密码必须存为 GitHub Actions Secrets，不要提交到仓库。若数据库凭据曾贴在聊天或代码中，先轮换密码再配置。
