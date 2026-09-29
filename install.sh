@@ -20,6 +20,14 @@ is_listening() {
     ss -lnt | awk '{print $4}' | grep -q ":${SQUID_PORT}$"
 }
 
+has_live_squid() {
+    [[ -f ${SQUID_PID} ]] || return 1
+
+    local pid
+    read -r pid < "$SQUID_PID" || return 1
+    [[ ${pid} =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
+}
+
 wait_for_listening() {
     for _ in {1..10}; do
         if is_listening; then
@@ -32,7 +40,7 @@ wait_for_listening() {
 
 wait_for_stop() {
     local pid=$1
-    for _ in {1..10}; do
+    for _ in {1..40}; do
         if ! kill -0 "$pid" 2>/dev/null; then
             return 0
         fi
@@ -76,6 +84,15 @@ start_squid() {
         return 0
     fi
 
+    if has_live_squid; then
+        if wait_for_listening; then
+            echo "Squid 已在运行，监听 0.0.0.0:${SQUID_PORT}。"
+            return 0
+        fi
+        echo "Squid 进程仍在运行，但端口 ${SQUID_PORT} 未监听；请选 3 重启 Squid。" >&2
+        return 1
+    fi
+
     if [[ ! -f ${SQUID_CONFIG} ]]; then
         echo "未找到 ${SQUID_CONFIG}，请先选择 1 安装与配置部署。" >&2
         return 1
@@ -103,7 +120,10 @@ stop_squid() {
         local pid
         pid=$(cat "$SQUID_PID")
         kill -TERM "$pid" 2>/dev/null || true
-        wait_for_stop "$pid" || return 1
+        if ! wait_for_stop "$pid"; then
+            echo "等待 Squid 进程 ${pid} 停止超时。" >&2
+            return 1
+        fi
         rm -f "$SQUID_PID"
     fi
 }

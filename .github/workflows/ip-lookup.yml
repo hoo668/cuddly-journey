@@ -1,0 +1,45 @@
+name: IP lookup
+
+on:
+  workflow_dispatch:
+    inputs:
+      ip:
+        description: IPv4 or IPv6 address (leave empty to query the runner's public IP)
+        required: false
+        type: string
+  schedule:
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Query and summarize IP
+        env:
+          TARGET_IP: ${{ inputs.ip }}
+        run: |
+          if [[ -n "$TARGET_IP" ]]; then
+            python ip/lookup.py --ip "$TARGET_IP" --json > ip-result.json
+          else
+            python ip/lookup.py --json > ip-result.json
+          fi
+          {
+            echo '## IP lookup result'
+            echo
+            echo '```json'
+            cat ip-result.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ip-lookup-result
+          path: ip-result.json
+          if-no-files-found: error
+          retention-days: 14
