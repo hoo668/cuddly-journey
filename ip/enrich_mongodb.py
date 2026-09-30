@@ -110,6 +110,7 @@ def enrich_collection(
     refresh_days: int,
     force: bool = False,
     lookup_fn: Any = lookup,
+    batch_size: int = 100,
 ) -> dict[str, int]:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=refresh_days)
@@ -123,27 +124,33 @@ def enrich_collection(
             {"ip_info.status": "failed", "ip_info.checked_at": {"$lt": retry_cutoff}},
         ]
 
-    documents = collection.find(query, {"ip": 1, "ip_info": 1}).sort("_id", 1)
+    documents = collection.find(query, {"ip": 1})
+    documents = documents.sort([("ip", 1), ("_id", 1)]).batch_size(batch_size)
     if limit > 0:
         documents = documents.limit(limit)
-    results_by_ip: dict[str, dict[str, Any] | None] = {}
-    errors_by_ip: dict[str, str] = {}
     status_counts = {"complete": 0, "partial": 0, "failed": 0, "invalid_ip": 0}
     modified = 0
     scanned = 0
+    unique_ips_queried = 0
+    previous_stored_ip: str | None = None
+    cached_result: dict[str, Any] | None = None
+    cached_error: str | None = None
 
     for document in documents:
         scanned += 1
-        address = document["ip"].strip()
-        if address not in results_by_ip:
+        stored_ip = document["ip"]
+        address = stored_ip.strip()
+        if stored_ip != previous_stored_ip:
+            previous_stored_ip = stored_ip
+            unique_ips_queried += 1
             try:
-                results_by_ip[address] = lookup_fn(address, timeout=10.0)
+                cached_result = lookup_fn(address, timeout=10.0)
+                cached_error = None
             except ValueError:
-                results_by_ip[address] = None
-                errors_by_ip[address] = "invalid_ip"
+                cached_result = None
+                cached_error = "invalid_ip"
 
-        result = results_by_ip[address]
-        ip_info = make_ip_info(address, result, errors_by_ip.get(address))
+        ip_info = make_ip_info(address, cached_result, cached_error)
         status_counts[ip_info["status"]] += 1
         update = collection.update_one(
             {"_id": document["_id"]},
@@ -155,7 +162,7 @@ def enrich_collection(
         "matched": scanned,
         "scanned": scanned,
         "modified": modified,
-        "unique_ips_queried": len(results_by_ip),
+        "unique_ips_queried": unique_ips_queried,
         **status_counts,
     }
 
@@ -165,13 +172,14 @@ def main() -> int:
     parser.add_argument("--database", default=os.environ.get("MONGODB_DATABASE", "ip_lookup"))
     parser.add_argument("--collection", default=os.environ.get("MONGODB_COLLECTION", "login_ip"))
     parser.add_argument("--limit", type=int, default=0, help="Maximum documents to scan; 0 scans all matching documents")
+    parser.add_argument("--batch-size", type=int, default=100, help="MongoDB cursor batch size; controls memory use")
     parser.add_argument("--refresh-days", type=int, default=30)
     parser.add_argument("--force", action="store_true", help="Recheck matching IP documents even if fresh")
     parser.add_argument("--seed-demo", action="store_true", help="Insert eight idempotent synthetic login records")
     args = parser.parse_args()
 
-    if args.limit < 0 or args.refresh_days < 0:
-        parser.error("--limit and --refresh-days cannot be negative")
+    if args.limit < 0 or args.refresh_days < 0 or args.batch_size < 1:
+        parser.error("--limit and --refresh-days cannot be negative; --batch-size must be positive")
     uri = os.environ.get("MONGODB_URI")
     if not uri:
         parser.error("MONGODB_URI is required")
@@ -191,11 +199,11 @@ def main() -> int:
         with MongoClient(uri, serverSelectionTimeoutMS=15_000) as client:
             client.admin.command("ping")
             collection = client[args.database][args.collection]
-            collection.create_index("ip")
+            collection.create_index([("ip", 1), ("_id", 1)])
             collection.create_index("ip_info.checked_at")
             collection.create_index("ip_info.status")
             seeded = seed_demo_documents(collection) if args.seed_demo else 0
-            summary = enrich_collection(collection, args.limit, args.refresh_days, args.force)
+            summary = enrich_collection(collection, args.limit, args.refresh_days, args.force, batch_size=args.batch_size)
             summary["seeded_demo_documents"] = seeded
             summary["database"] = args.database
             summary["collection"] = args.collection

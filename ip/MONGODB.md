@@ -6,7 +6,7 @@ The workflow `.github/workflows/ip-mongodb-enrichment.yml` runs only when manual
 
 1. Connects to MongoDB using GitHub Actions Secrets.
 2. Idempotently inserts up to eight synthetic login records.
-3. Scans every login record with a non-empty string `ip`, even when existing `ip_info` is fresh.
+3. Scans every login record with a non-empty string `ip`, even when existing `ip_info` is fresh. A sorted Mongo cursor uses a 100-document batch and projects only `_id` and `ip` into Python; prior `ip_info` values are not loaded into memory.
 4. Looks up each distinct IP once per workflow run.
 5. Writes normalized results, authoritative values, vote metadata, and per-provider statuses under `ip_info`.
 
@@ -31,7 +31,7 @@ In MongoDB Atlas, create a database user with only the permissions needed for th
 
 ## Document shape
 
-The collection is created on the first insert. The job ensures indexes on `ip`, `ip_info.checked_at`, and `ip_info.status` for the scan. Login records use a stable synthetic `_id` so repeated runs do not duplicate them:
+The collection is created on the first insert. The job ensures a compound `ip`/`_id` index for the ordered scan and indexes on `ip_info.checked_at` and `ip_info.status`. Login records use a stable synthetic `_id` so repeated runs do not duplicate them:
 
 ```json
 {
@@ -108,4 +108,4 @@ Atlas must accept connections from the runner, and the three Secrets must exist.
 
 ## Refresh behavior
 
-The workflow always uses `--force`, so every document with a non-empty string `ip` is processed during each manual run. Locally, omit `--force` to process only missing/stale records, or set `--limit N` to cap the number examined; `--limit 0` scans all matching records. Duplicate IPs share one upstream lookup during each run. Invalid IPs are written with `status: "invalid_ip"` and no authoritative data.
+The workflow always uses `--force`, so every document with a non-empty string `ip` is processed during each manual run. MongoDB streams at most 100 projected login documents to the runner at a time; Python retains only the current provider result and writes each row before continuing. Memory use therefore stays bounded by the cursor batch plus one IP result, rather than growing with the total collection size. Locally, set `--batch-size N` to tune the cursor batch and `--limit N` to cap the number examined; `--limit 0` scans all matching records. Duplicate adjacent IPs share one upstream lookup during a run. Invalid IPs are written with `status: "invalid_ip"` and no authoritative data. The GitHub-hosted job has a six-hour maximum, so an extremely large or slow scan can hit the time limit even though memory remains bounded.

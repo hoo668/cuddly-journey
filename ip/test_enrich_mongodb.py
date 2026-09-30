@@ -8,8 +8,15 @@ class FakeCursor:
     def __init__(self, documents):
         self.documents = documents
 
-    def sort(self, key, direction):
-        self.documents.sort(key=lambda document: document[key], reverse=direction < 0)
+    def sort(self, keys, direction=1):
+        if isinstance(keys, str):
+            keys = [(keys, direction)]
+        for key, order in reversed(keys):
+            self.documents.sort(key=lambda document: document[key], reverse=order < 0)
+        return self
+
+    def batch_size(self, count):
+        self.requested_batch_size = count
         return self
 
     def limit(self, count):
@@ -23,9 +30,11 @@ class FakeCursor:
 class FakeCollection:
     def __init__(self, documents=None):
         self.documents = documents or []
+        self.cursor = None
 
     def find(self, query, projection):
-        return FakeCursor(list(self.documents))
+        self.cursor = FakeCursor(list(self.documents))
+        return self.cursor
 
     def update_one(self, selector, update, upsert=False):
         for document in self.documents:
@@ -117,6 +126,7 @@ class MongoEnrichmentTests(unittest.TestCase):
         self.assertEqual(summary["scanned"], 150)
         self.assertEqual(summary["modified"], 150)
         self.assertEqual(len(calls), 150)
+        self.assertEqual(collection.cursor.requested_batch_size, 100)
         self.assertTrue(all("ip_info" in document for document in documents))
 
 

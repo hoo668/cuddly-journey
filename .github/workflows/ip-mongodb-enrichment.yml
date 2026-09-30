@@ -30,7 +30,7 @@ jobs:
           MONGODB_DATABASE: ${{ vars.MONGODB_DATABASE || 'ip_lookup' }}
           MONGODB_COLLECTION: ${{ vars.MONGODB_COLLECTION || 'login_ip' }}
         run: |
-          python ip/enrich_mongodb.py --seed-demo --force --limit 0 --refresh-days 30 > mongo-summary.json
+          python ip/enrich_mongodb.py --seed-demo --force --limit 0 --batch-size 100 --refresh-days 30 > mongo-summary.json
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           from pathlib import Path
