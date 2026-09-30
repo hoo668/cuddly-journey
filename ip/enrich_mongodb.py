@@ -123,13 +123,17 @@ def enrich_collection(
             {"ip_info.status": "failed", "ip_info.checked_at": {"$lt": retry_cutoff}},
         ]
 
-    documents = list(collection.find(query, {"ip": 1, "ip_info": 1}).sort("_id", 1).limit(limit))
+    documents = collection.find(query, {"ip": 1, "ip_info": 1}).sort("_id", 1)
+    if limit > 0:
+        documents = documents.limit(limit)
     results_by_ip: dict[str, dict[str, Any] | None] = {}
     errors_by_ip: dict[str, str] = {}
     status_counts = {"complete": 0, "partial": 0, "failed": 0, "invalid_ip": 0}
     modified = 0
+    scanned = 0
 
     for document in documents:
+        scanned += 1
         address = document["ip"].strip()
         if address not in results_by_ip:
             try:
@@ -148,7 +152,8 @@ def enrich_collection(
         modified += int(update.modified_count > 0)
 
     return {
-        "matched": len(documents),
+        "matched": scanned,
+        "scanned": scanned,
         "modified": modified,
         "unique_ips_queried": len(results_by_ip),
         **status_counts,
@@ -159,14 +164,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Enrich login-IP documents in MongoDB.")
     parser.add_argument("--database", default=os.environ.get("MONGODB_DATABASE", "ip_lookup"))
     parser.add_argument("--collection", default=os.environ.get("MONGODB_COLLECTION", "login_ip"))
-    parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--limit", type=int, default=0, help="Maximum documents to scan; 0 scans all matching documents")
     parser.add_argument("--refresh-days", type=int, default=30)
     parser.add_argument("--force", action="store_true", help="Recheck matching IP documents even if fresh")
     parser.add_argument("--seed-demo", action="store_true", help="Insert eight idempotent synthetic login records")
     args = parser.parse_args()
 
-    if args.limit < 1 or args.refresh_days < 0:
-        parser.error("--limit must be positive and --refresh-days cannot be negative")
+    if args.limit < 0 or args.refresh_days < 0:
+        parser.error("--limit and --refresh-days cannot be negative")
     uri = os.environ.get("MONGODB_URI")
     if not uri:
         parser.error("MONGODB_URI is required")

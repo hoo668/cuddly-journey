@@ -95,6 +95,30 @@ class MongoEnrichmentTests(unittest.TestCase):
         self.assertEqual(second_inserted, 0)
         self.assertTrue(all(document["synthetic"] for document in collection.documents))
 
+    def test_zero_limit_scans_all_documents_not_only_first_hundred(self):
+        documents = [
+            {"_id": index, "ip": f"10.0.0.{index}"}
+            for index in range(1, 151)
+        ]
+        collection = FakeCollection(documents)
+        calls = []
+
+        def fake_lookup(ip, timeout):
+            calls.append(ip)
+            return {
+                "ip": ip,
+                "authoritative": {"data": {"ip": ip}, "field_provenance": {}},
+                "confidence": {},
+                "successful_source_count": 1,
+                "sources": [{"name": "ipip.la", "status": "ok"}],
+            }
+
+        summary = enrich_collection(collection, limit=0, refresh_days=30, force=True, lookup_fn=fake_lookup)
+        self.assertEqual(summary["scanned"], 150)
+        self.assertEqual(summary["modified"], 150)
+        self.assertEqual(len(calls), 150)
+        self.assertTrue(all("ip_info" in document for document in documents))
+
 
 if __name__ == "__main__":
     unittest.main()

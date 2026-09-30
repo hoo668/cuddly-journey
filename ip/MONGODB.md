@@ -2,11 +2,11 @@
 
 ## What it does
 
-The workflow `.github/workflows/ip-mongodb-enrichment.yml` runs daily at 05:37 UTC and can also be started manually. It:
+The workflow `.github/workflows/ip-mongodb-enrichment.yml` runs only when manually started. Each run:
 
 1. Connects to MongoDB using GitHub Actions Secrets.
 2. Idempotently inserts up to eight synthetic login records.
-3. Finds login records with a non-empty string `ip` whose `ip_info` is missing, older than 30 days, for a different IP, or previously failed.
+3. Scans every login record with a non-empty string `ip`, even when existing `ip_info` is fresh.
 4. Looks up each distinct IP once per workflow run.
 5. Writes normalized results, authoritative values, vote metadata, and per-provider statuses under `ip_info`.
 
@@ -91,7 +91,7 @@ python3 -m pip install -r ip/requirements-mongodb.txt
 export MONGODB_URI='mongodb+srv://cluster0.example.mongodb.net/?retryWrites=true&w=majority'
 export MONGODB_USERNAME='rotated-db-user'
 export MONGODB_PASSWORD='rotated-password'
-python3 ip/enrich_mongodb.py --seed-demo --limit 100 --refresh-days 30
+python3 ip/enrich_mongodb.py --seed-demo --force --limit 0 --refresh-days 30
 ```
 
 For a local dry test without a database connection, run:
@@ -102,10 +102,10 @@ python3 -m unittest discover -s ip -p 'test_enrich_mongodb.py' -v
 
 ## Run in GitHub Actions
 
-Open **Actions → Enrich login IPs in MongoDB → Run workflow**. The manual inputs allow a batch limit and optional force refresh. The scheduled run processes at most 100 stale/missing documents per day and seeds the synthetic records idempotently. The job summary reports counts only; it does not print IP documents or credentials.
+Open **Actions → Enrich login IPs in MongoDB → Run workflow**. There are no inputs: one run seeds synthetic records idempotently, scans every non-empty string IP in the configured collection, and overwrites each document's `ip_info` with the latest normalized lookup. The job summary reports totals only; it does not print IP documents or credentials. The job has a six-hour GitHub-hosted runner limit.
 
 Atlas must accept connections from the runner, and the three Secrets must exist. Without these prerequisites the Action will fail at connection time; it cannot be verified from this repository alone without access to the rotated secret and Atlas network policy.
 
 ## Refresh behavior
 
-By default, records are rechecked when `ip_info` is missing, more than 30 days old, for an IP different from the document's current `ip`, or marked failed/invalid. `--force` makes every matching IP document eligible. Duplicate IPs share one upstream lookup during each workflow run.
+The workflow always uses `--force`, so every document with a non-empty string `ip` is processed during each manual run. Locally, omit `--force` to process only missing/stale records, or set `--limit N` to cap the number examined; `--limit 0` scans all matching records. Duplicate IPs share one upstream lookup during each run. Invalid IPs are written with `status: "invalid_ip"` and no authoritative data.

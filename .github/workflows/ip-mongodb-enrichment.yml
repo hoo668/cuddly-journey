@@ -2,19 +2,6 @@ name: Enrich login IPs in MongoDB
 
 on:
   workflow_dispatch:
-    inputs:
-      force_refresh:
-        description: Recheck IP records even when their enrichment is fresh
-        required: false
-        default: false
-        type: boolean
-      limit:
-        description: Maximum stale login-IP documents to process
-        required: false
-        default: 100
-        type: number
-  schedule:
-    - cron: "37 5 * * *"
 
 permissions:
   contents: read
@@ -27,6 +14,7 @@ jobs:
   enrich:
     runs-on: ubuntu-latest
     environment: Atlas
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,20 +29,14 @@ jobs:
           MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}
           MONGODB_DATABASE: ${{ vars.MONGODB_DATABASE || 'ip_lookup' }}
           MONGODB_COLLECTION: ${{ vars.MONGODB_COLLECTION || 'login_ip' }}
-          FORCE_REFRESH: ${{ inputs.force_refresh || false }}
-          BATCH_LIMIT: ${{ inputs.limit || 100 }}
         run: |
-          args=(--seed-demo --limit "$BATCH_LIMIT" --refresh-days 30)
-          if [[ "$FORCE_REFRESH" == "true" ]]; then
-            args+=(--force)
-          fi
-          python ip/enrich_mongodb.py "${args[@]}" > mongo-summary.json
+          python ip/enrich_mongodb.py --seed-demo --force --limit 0 --refresh-days 30 > mongo-summary.json
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           from pathlib import Path
           report = json.loads(Path("mongo-summary.json").read_text())
           print("## MongoDB login-IP enrichment")
           print()
-          for key in ("database", "collection", "seeded_demo_documents", "matched", "modified", "unique_ips_queried", "complete", "partial", "failed", "invalid_ip"):
+          for key in ("database", "collection", "seeded_demo_documents", "scanned", "modified", "unique_ips_queried", "complete", "partial", "failed", "invalid_ip"):
               print(f"- **{key}**: {report[key]}")
           PY

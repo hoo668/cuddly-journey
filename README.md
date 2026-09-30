@@ -48,4 +48,4 @@ GitHub Actions 适合定时/手动运行任务和生成 artifact，不能常驻�
 
 ### MongoDB 登录 IP enrichment
 
-MongoDB 集成及定时 GitHub Actions 配置见 [ip/MONGODB.md](ip/MONGODB.md)。工作流会在 `login_ip` collection 幂等创建虚拟登录样例，再扫描缺失/过期的 `ip_info` 并回写归一化解析结果。MongoDB URI、用户名和密码必须存为 GitHub Actions Secrets，不要提交到仓库。若数据库凭据曾贴在聊天或代码中，先轮换密码再配置。
+MongoDB 集成及手动触发的 GitHub Action 说明见 [ip/MONGODB.md](ip/MONGODB.md)。每次运行会幂等创建虚拟登录样例，再扫描 `login_ip` collection 中所有非空 IP 并写入最新 `ip_info`。MongoDB URI、用户名和密码必须存为 `Atlas` 环境的 GitHub Actions Secrets，不要提交到仓库。若数据库凭据曾贴在聊天或代码中，先轮换密码再配置。
