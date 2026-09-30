@@ -26,7 +26,7 @@ concurrency:
 jobs:
   enrich:
     runs-on: ubuntu-latest
-    environment: "Configure Atlas"
+    environment: Atlas
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
